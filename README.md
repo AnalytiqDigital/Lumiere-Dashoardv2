@@ -23,7 +23,25 @@ The connected workflow is `hijpZV6nxXAH2gov`. Configure the following variables 
 
 After deploying the dashboard, set the workflow's `DASHBOARD_EVENTS_URL` to `https://<dashboard-host>/api/integrations/events`. The workflow also needs its `N8N_EVENTS_SECRET` value set to the same value as the dashboard's environment variable.
 
-The incoming event endpoint accepts the workflow fields `type`, `messageId`, `customerPhone`, `customerName`, `content`, `messageType`, `supported`, `isTeam`, `timestamp`, `hasOpenHandoff`, and `handoffId`. It verifies the shared header and deduplicates messages by `messageId`.
+The inbox refreshes conversations and the selected chat every 3 seconds while open. Click **Enable alerts** once to allow desktop notifications and sound for new customer messages and handoffs.
+
+The incoming event endpoint accepts the workflow fields `type`, `messageId`, `customerPhone`, `customerName`, `content`, `messageType`, `supported`, `isTeam`, `timestamp`, `hasOpenHandoff`, and `handoffId`. It verifies the shared header and deduplicates messages by `messageId`. For a handoff created after the message event, send a second event after the workflow confirms the handoff:
+
+```json
+{
+  "eventKind": "handoff_opened",
+  "type": "handoff",
+  "messageId": "handoff:<handoff-id>",
+  "customerPhone": "<customer-phone>",
+  "customerName": "<customer-name>",
+  "content": "",
+  "timestamp": "<ISO-8601 timestamp>",
+  "handoffId": "<handoff-id>",
+  "handoffReason": "<reason>"
+}
+```
+
+The handoff event updates the dashboard conversation and triggers its alert; it does not duplicate the original customer message.
 
 Dashboard replies and handoff closures are sent server-side as `reply` and `close` actions with `handoffId`, a unique `actionId`, and reply `text` when applicable. The workflow remains responsible for WhatsApp delivery.
 

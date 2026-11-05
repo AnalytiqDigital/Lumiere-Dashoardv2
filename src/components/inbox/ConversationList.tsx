@@ -14,6 +14,7 @@ export type ConversationPreview = {
   notes?: string;
   summary?: string;
   handoffId?: string | null;
+  lastInboundMessageId?: string | null;
 };
 
 const statusStyles: Record<string, string> = {

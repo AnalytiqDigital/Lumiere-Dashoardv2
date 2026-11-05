@@ -5,6 +5,7 @@ import { constantTimeEqual } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const eventSchema = z.object({
+  eventKind: z.enum(["message", "handoff_opened"]).default("message"),
   type: z.string().min(1),
   messageId: z.string().min(1),
   customerPhone: z.string().min(1),
@@ -16,6 +17,7 @@ const eventSchema = z.object({
   timestamp: z.string().min(1),
   hasOpenHandoff: z.boolean().optional(),
   handoffId: z.string().optional().nullable(),
+  handoffReason: z.string().max(300).optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -53,6 +55,127 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    if (event.eventKind === "handoff_opened") {
+      const handoffId = event.handoffId;
+      if (!handoffId) {
+        return NextResponse.json(
+          { error: "A handoffId is required for a handoff event" },
+          { status: 400 }
+        );
+      }
+
+      const existingEvent = await prisma.conversationEvent.findUnique({
+        where: { id: event.messageId },
+        select: { id: true },
+      });
+      if (existingEvent) {
+        return NextResponse.json({ ok: true, duplicate: true });
+      }
+
+      await prisma.$transaction(async (transaction) => {
+        const business = await transaction.business.upsert({
+          where: { slug: "lumiere-belleza" },
+          update: {},
+          create: {
+            name: "Lumiere Belleza",
+            slug: "lumiere-belleza",
+            description: "Original skincare & cosmetics in Abuja",
+          },
+        });
+        const customer = await transaction.customer.upsert({
+          where: {
+            businessId_whatsappId: {
+              businessId: business.id,
+              whatsappId,
+            },
+          },
+          update: {
+            phoneNumber: phone,
+            ...(event.customerName ? { name: event.customerName } : {}),
+            lastSeenAt: timestamp,
+          },
+          create: {
+            businessId: business.id,
+            whatsappId,
+            phoneNumber: phone,
+            name: event.customerName || null,
+            lastSeenAt: timestamp,
+          },
+        });
+        let conversation = await transaction.conversation.findFirst({
+          where: {
+            businessId: business.id,
+            customerId: customer.id,
+            status: { not: "CLOSED" },
+          },
+          orderBy: { lastMessageAt: "desc" },
+        });
+        if (!conversation) {
+          conversation = await transaction.conversation.create({
+            data: {
+              businessId: business.id,
+              customerId: customer.id,
+              status: "AWAITING_HUMAN",
+              isUnread: true,
+              lastMessageAt: timestamp,
+              lastMessageText: "Customer requested a team member",
+            },
+          });
+        }
+
+        const existingHandoff = await transaction.handoff.findUnique({
+          where: { id: handoffId },
+        });
+        if (existingHandoff && existingHandoff.conversationId !== conversation.id) {
+          throw new Error("Handoff is associated with a different conversation");
+        }
+        if (existingHandoff) {
+          await transaction.handoff.update({
+            where: { id: existingHandoff.id },
+            data: {
+              status: "OPEN",
+              reason: event.handoffReason || existingHandoff.reason,
+              requestedAt: timestamp,
+              resolvedAt: null,
+              closedAt: null,
+            },
+          });
+        } else {
+          await transaction.handoff.create({
+            data: {
+              id: handoffId,
+              conversationId: conversation.id,
+              status: "OPEN",
+              reason: event.handoffReason || null,
+              requestedAt: timestamp,
+            },
+          });
+        }
+        await transaction.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            status: "AWAITING_HUMAN",
+            isUnread: true,
+            lastMessageAt: timestamp,
+          },
+        });
+        await transaction.conversationEvent.create({
+          data: {
+            id: event.messageId,
+            conversationId: conversation.id,
+            type: "HANDOFF_OPENED",
+            payload: {
+              handoffId,
+              reason: event.handoffReason || null,
+            },
+            createdAt: timestamp,
+          },
+        });
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
     const existing = await prisma.message.findUnique({
       where: { externalId: event.messageId },
       select: { id: true },
@@ -200,6 +323,15 @@ export async function POST(req: NextRequest) {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
+      if (event.eventKind === "handoff_opened") {
+        const duplicate = await prisma.conversationEvent.findUnique({
+          where: { id: event.messageId },
+          select: { id: true },
+        });
+        if (duplicate) {
+          return NextResponse.json({ ok: true, duplicate: true });
+        }
+      }
       const duplicate = await prisma.message.findUnique({
         where: { externalId: event.messageId },
         select: { id: true },

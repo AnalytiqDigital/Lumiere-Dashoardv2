@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0B1220;
+  --foreground: #E8EDF5;
+  --card: #0F1C2E;
+  --accent: #F5A623;
+  --ai: #1A7A4C;
+  --admin: #2B5CDB;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #243B55;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2E4A66;
+}
+
+/* Message bubble styles matching Solar Axis */
+.bubble-ai {
+  @apply bg-ai text-white rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[85%] text-sm leading-relaxed;
+}
+.bubble-customer {
+  @apply bg-navy-700 text-gray-200 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[85%] text-sm leading-relaxed;
+}
+.bubble-admin {
+  @apply bg-admin text-white rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[85%] text-sm leading-relaxed ml-auto;
+}

@@ -32,6 +32,7 @@ export default function InboxPage() {
   const [mobileView, setMobileView] = useState<"list" | "chat" | "customer">("list");
   const [error, setError] = useState("");
   const [loadingConversations, setLoadingConversations] = useState(true);
+  const [actionPending, setActionPending] = useState(false);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [toast, setToast] = useState("");
@@ -210,7 +211,15 @@ export default function InboxPage() {
   }
 
   async function handleAction(action: "takeover" | "close") {
-    if (!selectedId) return;
+    if (!selectedId || actionPending) return;
+    if (
+      action === "close" &&
+      !window.confirm("Mark this handoff as resolved and close the conversation?")
+    ) {
+      return;
+    }
+
+    setActionPending(true);
     setError("");
 
     try {
@@ -229,6 +238,8 @@ export default function InboxPage() {
       await loadConversations();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not update conversation");
+    } finally {
+      setActionPending(false);
     }
   }
 
@@ -350,11 +361,14 @@ export default function InboxPage() {
                     phone: selected.phone,
                     status: selected.status,
                     summary: selected.summary,
+                    handoffId: selected.handoffId,
                   }
                 : null
             }
             messages={messages}
             onSend={handleSend}
+            onCloseHandoff={selected?.handoffId ? () => void handleAction("close") : undefined}
+            actionPending={actionPending}
             onClose={() => {
               setMobileView("list");
               setSelectedId(null);
@@ -381,8 +395,9 @@ export default function InboxPage() {
                 : null
             }
             onClose={() => setMobileView("chat")}
+            actionPending={actionPending}
             onTakeover={() => handleAction("takeover")}
-            onCloseHandoff={() => handleAction("close")}
+            onCloseHandoff={selected?.handoffId ? () => handleAction("close") : undefined}
           />
         </div>
       </div>

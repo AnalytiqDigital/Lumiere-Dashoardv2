@@ -15,6 +15,7 @@ interface Props {
   onClose?: () => void;
   onTakeover?: () => void;
   onCloseHandoff?: () => void;
+  actionPending?: boolean;
   className?: string;
 }
 
@@ -23,6 +24,7 @@ export function CustomerPanel({
   onClose,
   onTakeover,
   onCloseHandoff,
+  actionPending = false,
   className,
 }: Props) {
   if (!customer) {
@@ -97,17 +99,21 @@ export function CustomerPanel({
         <div className="pt-2 space-y-2">
           <button
             onClick={onTakeover}
+            disabled={actionPending}
             className="w-full flex items-center justify-center gap-2 rounded-lg bg-accent hover:bg-accent-hover text-navy-950 text-sm font-medium py-2.5 transition"
           >
             <UserCheck className="w-4 h-4" />
             Take over conversation
           </button>
-          <button
-            onClick={onCloseHandoff}
-            className="w-full rounded-lg border border-navy-600 hover:bg-navy-800 text-gray-300 text-sm py-2.5 transition"
-          >
-            Mark as resolved / close
-          </button>
+          {onCloseHandoff && (
+            <button
+              onClick={onCloseHandoff}
+              disabled={actionPending}
+              className="w-full rounded-lg border border-navy-600 hover:bg-navy-800 text-gray-300 text-sm py-2.5 transition disabled:opacity-50"
+            >
+              {actionPending ? "Closing…" : "Mark as resolved / close"}
+            </button>
+          )}
         </div>
       </div>
     </div>

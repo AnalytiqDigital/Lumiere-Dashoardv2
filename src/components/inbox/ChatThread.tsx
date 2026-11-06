@@ -19,13 +19,23 @@ interface Props {
     phone: string;
     status: string;
     summary?: string;
+    handoffId?: string | null;
   } | null;
   messages: ChatMessage[];
   onSend: (text: string) => Promise<boolean>;
   onClose?: () => void;
+  onCloseHandoff?: () => void;
+  actionPending?: boolean;
 }
 
-export function ChatThread({ conversation, messages, onSend, onClose }: Props) {
+export function ChatThread({
+  conversation,
+  messages,
+  onSend,
+  onClose,
+  onCloseHandoff,
+  actionPending = false,
+}: Props) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -78,6 +88,16 @@ export function ChatThread({ conversation, messages, onSend, onClose }: Props) {
             {conversation.summary ? ` · ${conversation.summary}` : ""}
           </p>
         </div>
+        {conversation.handoffId && onCloseHandoff && (
+          <button
+            type="button"
+            onClick={onCloseHandoff}
+            disabled={actionPending}
+            className="rounded-lg border border-navy-600 hover:bg-navy-800 text-gray-300 text-xs sm:text-sm px-3 py-2 disabled:opacity-50"
+          >
+            {actionPending ? "Closing…" : "Mark resolved"}
+          </button>
+        )}
       </div>
 
       {/* Messages */}

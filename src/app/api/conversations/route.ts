@@ -58,7 +58,11 @@ export async function GET() {
         phone: conversation.customer.phoneNumber,
         lastMessage: conversation.lastMessageText || "",
         lastMessageAt: conversation.lastMessageAt.toISOString(),
-        status: toUiStatus(conversation.status),
+        status:
+          conversation.handoffs.length > 0 &&
+          conversation.status !== "CLOSED"
+            ? "awaiting_human"
+            : toUiStatus(conversation.status),
         isUnread: conversation.isUnread,
         lastInboundMessageId: conversation.messages[0]?.id ?? null,
         tags: conversation.customer.tags,

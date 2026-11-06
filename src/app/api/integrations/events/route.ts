@@ -242,7 +242,16 @@ export async function POST(req: NextRequest) {
         : messageIsOutbound
           ? MessageSender.AI
           : MessageSender.CUSTOMER;
-      const nextStatus = event.hasOpenHandoff
+      const activeHandoff = await transaction.handoff.findFirst({
+        where: {
+          conversationId: conversation.id,
+          status: { in: ["OPEN", "ASSIGNED"] },
+        },
+        orderBy: { requestedAt: "desc" },
+        select: { id: true },
+      });
+      const handoffIsOpen = event.hasOpenHandoff || Boolean(activeHandoff);
+      const nextStatus = handoffIsOpen
         ? "AWAITING_HUMAN"
         : sender === MessageSender.AGENT
           ? "HUMAN_HANDLED"

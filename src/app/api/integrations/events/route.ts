@@ -5,7 +5,7 @@ import { constantTimeEqual } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const eventSchema = z.object({
-  eventKind: z.enum(["message", "handoff_opened"]).default("message"),
+  eventKind: z.enum(["message", "handoff_opened", "handoff_closed"]).default("message"),
   type: z.string().min(1),
   messageId: z.string().min(1),
   customerPhone: z.string().min(1),
@@ -16,7 +16,12 @@ const eventSchema = z.object({
   isTeam: z.boolean().optional(),
   timestamp: z.string().min(1),
   hasOpenHandoff: z.boolean().optional(),
-  handoffId: z.string().optional().nullable(),
+  // n8n data-table row ids can arrive as numbers; always store them as strings.
+  handoffId: z
+    .union([z.string(), z.number()])
+    .transform((value) => String(value))
+    .optional()
+    .nullable(),
   handoffReason: z.string().max(300).optional().nullable(),
 });
 
@@ -176,6 +181,65 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (event.eventKind === "handoff_closed") {
+      // Sent by n8n when a handoff is closed outside the dashboard (team /close on WhatsApp, or the auto-close).
+      const handoffId = event.handoffId;
+      if (!handoffId) {
+        return NextResponse.json(
+          { error: "A handoffId is required for a handoff event" },
+          { status: 400 }
+        );
+      }
+
+      const existingEvent = await prisma.conversationEvent.findUnique({
+        where: { id: event.messageId },
+        select: { id: true },
+      });
+      if (existingEvent) {
+        return NextResponse.json({ ok: true, duplicate: true });
+      }
+
+      const handoff = await prisma.handoff.findUnique({
+        where: { id: handoffId },
+      });
+      if (!handoff) {
+        return NextResponse.json({ ok: true, ignored: true });
+      }
+
+      await prisma.$transaction(async (transaction) => {
+        if (handoff.status !== "CLOSED") {
+          await transaction.handoff.update({
+            where: { id: handoff.id },
+            data: { status: "CLOSED", closedAt: timestamp, resolvedAt: timestamp },
+          });
+        }
+        const stillOpen = await transaction.handoff.count({
+          where: {
+            conversationId: handoff.conversationId,
+            id: { not: handoff.id },
+            status: { in: ["OPEN", "ASSIGNED"] },
+          },
+        });
+        if (stillOpen === 0) {
+          await transaction.conversation.update({
+            where: { id: handoff.conversationId },
+            data: { status: "CLOSED" },
+          });
+        }
+        await transaction.conversationEvent.create({
+          data: {
+            id: event.messageId,
+            conversationId: handoff.conversationId,
+            type: "HANDOFF_CLOSED",
+            payload: { handoffId },
+            createdAt: timestamp,
+          },
+        });
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
     const existing = await prisma.message.findUnique({
       where: { externalId: event.messageId },
       select: { id: true },
@@ -242,16 +306,7 @@ export async function POST(req: NextRequest) {
         : messageIsOutbound
           ? MessageSender.AI
           : MessageSender.CUSTOMER;
-      const activeHandoff = await transaction.handoff.findFirst({
-        where: {
-          conversationId: conversation.id,
-          status: { in: ["OPEN", "ASSIGNED"] },
-        },
-        orderBy: { requestedAt: "desc" },
-        select: { id: true },
-      });
-      const handoffIsOpen = event.hasOpenHandoff || Boolean(activeHandoff);
-      const nextStatus = handoffIsOpen
+      const nextStatus = event.hasOpenHandoff
         ? "AWAITING_HUMAN"
         : sender === MessageSender.AGENT
           ? "HUMAN_HANDLED"
@@ -332,7 +387,7 @@ export async function POST(req: NextRequest) {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      if (event.eventKind === "handoff_opened") {
+      if (event.eventKind === "handoff_opened" || event.eventKind === "handoff_closed") {
         const duplicate = await prisma.conversationEvent.findUnique({
           where: { id: event.messageId },
           select: { id: true },

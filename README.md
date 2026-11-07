@@ -14,7 +14,7 @@ There is no default dashboard password. The dashboard will reject logins until `
 
 ## n8n connection
 
-The connected workflow is `hijpZV6nxXAH2gov`. Configure the following variables in the dashboard hosting environment:
+The connected workflow is "Lumière Belleza WhatsApp Support Agent with Human Handoff" (Solar-style handoff flow). It pushes events to this dashboard with the Header Auth credential whose header is `x-webhook-secret`. Configure the following variables in the dashboard hosting environment:
 
 - `N8N_EVENTS_SECRET`: shared with the workflow's `x-webhook-secret` header.
 - `N8N_ADMIN_WEBHOOK_URL`: `https://7pq44p57.rpcld.app/webhook/lumiere-dashboard-admin`.
@@ -42,6 +42,25 @@ The incoming event endpoint accepts the workflow fields `type`, `messageId`, `cu
 ```
 
 The handoff event updates the dashboard conversation and triggers its alert; it does not duplicate the original customer message.
+
+Handoff ids from the current workflow are prefixed (`hf-12`), so they never collide with handoffs created by the older workflow. `handoffId` may be sent as a string or a number; it is stored as a string.
+
+When a handoff is closed outside the dashboard (the team sends `/close` on WhatsApp, or the workflow's auto-close fires), the workflow sends a `handoff_closed` event so the dashboard stays in sync:
+
+```json
+{
+  "eventKind": "handoff_closed",
+  "type": "handoff",
+  "messageId": "handoff-closed:hf-<handoff-id>:<epoch-ms>",
+  "customerPhone": "<customer-phone>",
+  "customerName": "<customer-name>",
+  "content": "",
+  "timestamp": "<ISO-8601 timestamp>",
+  "handoffId": "hf-<handoff-id>"
+}
+```
+
+The workflow also sends AI replies (`type: "message.sent.ai"`) and team replies typed on WhatsApp (`type: "message.sent.team"`, `isTeam: true`) so the thread shows the whole conversation. Replies sent from the dashboard are stored by the dashboard itself and are not echoed back.
 
 Dashboard replies and handoff closures are sent server-side as `reply` and `close` actions with `handoffId`, a unique `actionId`, and reply `text` when applicable. The workflow remains responsible for WhatsApp delivery.
 

@@ -43,6 +43,7 @@ interface Props {
   onFilterChange: (f: string) => void;
   search: string;
   onSearchChange: (s: string) => void;
+  counts?: Record<string, number>;
 }
 
 export function ConversationList({
@@ -53,6 +54,7 @@ export function ConversationList({
   onFilterChange,
   search,
   onSearchChange,
+  counts,
 }: Props) {
   const filters = [
     { key: "all", label: "All" },
@@ -88,6 +90,20 @@ export function ConversationList({
             )}
           >
             {f.label}
+            {counts && (
+              <span
+                className={cn(
+                  "ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 text-[10px] font-semibold",
+                  filter === f.key
+                    ? "bg-navy-950/20 text-navy-950"
+                    : f.key === "awaiting_human" && (counts[f.key] ?? 0) > 0
+                      ? "bg-orange-500 text-white"
+                      : "bg-navy-600 text-gray-200"
+                )}
+              >
+                {counts[f.key] ?? 0}
+              </span>
+            )}
           </button>
         ))}
       </div>

@@ -32,7 +32,6 @@ export default function InboxPage() {
   const [mobileView, setMobileView] = useState<"list" | "chat" | "customer">("list");
   const [error, setError] = useState("");
   const [loadingConversations, setLoadingConversations] = useState(true);
-  const [actionPending, setActionPending] = useState(false);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [toast, setToast] = useState("");
@@ -185,6 +184,13 @@ export default function InboxPage() {
     );
   });
 
+  const filterCounts: Record<string, number> = {
+    all: conversations.length,
+    awaiting_human: conversations.filter((conversation) => conversation.status === "awaiting_human").length,
+    lead: conversations.filter((conversation) => conversation.status === "lead").length,
+    closed: conversations.filter((conversation) => conversation.status === "closed").length,
+  };
+
   const selected = conversations.find((conversation) => conversation.id === selectedId) || null;
 
   async function handleSend(text: string): Promise<boolean> {
@@ -211,15 +217,7 @@ export default function InboxPage() {
   }
 
   async function handleAction(action: "takeover" | "close") {
-    if (!selectedId || actionPending) return;
-    if (
-      action === "close" &&
-      !window.confirm("Mark this handoff as resolved and close the conversation?")
-    ) {
-      return;
-    }
-
-    setActionPending(true);
+    if (!selectedId) return;
     setError("");
 
     try {
@@ -238,8 +236,6 @@ export default function InboxPage() {
       await loadConversations();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not update conversation");
-    } finally {
-      setActionPending(false);
     }
   }
 
@@ -283,8 +279,8 @@ export default function InboxPage() {
           {businessConfig.name} · Chats
         </h1>
         <div className="flex items-center gap-2 text-xs text-gray-400">
-          <span className="hidden sm:inline px-2 py-1 rounded-full bg-navy-700">
-            {conversations.filter((conversation) => conversation.status === "awaiting_human").length} open handoffs
+          <span className="inline px-2 py-1 rounded-full bg-navy-700">
+            {filterCounts.awaiting_human} open handoff{filterCounts.awaiting_human === 1 ? "" : "s"}
           </span>
           <span className="hidden md:inline" aria-live="polite">
             {updatedAt
@@ -334,6 +330,7 @@ export default function InboxPage() {
           ) : (
             <ConversationList
               conversations={filtered}
+              counts={filterCounts}
               selectedId={selectedId}
               onSelect={(id) => {
                 setSelectedId(id);
@@ -361,14 +358,11 @@ export default function InboxPage() {
                     phone: selected.phone,
                     status: selected.status,
                     summary: selected.summary,
-                    handoffId: selected.handoffId,
                   }
                 : null
             }
             messages={messages}
             onSend={handleSend}
-            onCloseHandoff={selected?.handoffId ? () => void handleAction("close") : undefined}
-            actionPending={actionPending}
             onClose={() => {
               setMobileView("list");
               setSelectedId(null);
@@ -395,9 +389,8 @@ export default function InboxPage() {
                 : null
             }
             onClose={() => setMobileView("chat")}
-            actionPending={actionPending}
             onTakeover={() => handleAction("takeover")}
-            onCloseHandoff={selected?.handoffId ? () => handleAction("close") : undefined}
+            onCloseHandoff={() => handleAction("close")}
           />
         </div>
       </div>

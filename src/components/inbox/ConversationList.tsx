@@ -1,160 +1,86 @@
 "use client";
 
-import { cn, formatRelativeTime } from "@/lib/utils";
+import {
+  formatStatus,
+  formatTime,
+  type SolarConversation,
+} from "@/lib/dashboard";
 
-export type ConversationPreview = {
-  id: string;
-  name: string;
-  phone: string;
-  lastMessage: string;
-  lastMessageAt: string;
-  status: "followed_up" | "ai_chat" | "closed" | "open" | "lead" | "awaiting_human";
-  isUnread?: boolean;
-  tags?: string[];
-  notes?: string;
-  summary?: string;
-  handoffId?: string | null;
-  lastInboundMessageId?: string | null;
-};
+const TABS = [
+  ["all", "All"],
+  ["open", "Open handoffs"],
+  ["lead", "Leads"],
+  ["closed", "Closed"],
+] as const;
 
-const statusStyles: Record<string, string> = {
-  followed_up: "bg-accent text-navy-950",
-  ai_chat: "bg-navy-600 text-gray-300",
-  closed: "bg-emerald-600/80 text-white",
-  open: "bg-blue-600/80 text-white",
-  lead: "bg-purple-600/80 text-white",
-  awaiting_human: "bg-orange-500 text-white",
-};
-
-const statusLabels: Record<string, string> = {
-  followed_up: "followed up",
-  ai_chat: "AI chat",
-  closed: "closed",
-  open: "open",
-  lead: "lead",
-  awaiting_human: "handoff",
-};
+export type InboxFilter = (typeof TABS)[number][0];
 
 interface Props {
-  conversations: ConversationPreview[];
+  conversations: SolarConversation[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
-  filter: string;
-  onFilterChange: (f: string) => void;
+  filter: InboxFilter;
   search: string;
-  onSearchChange: (s: string) => void;
-  counts?: Record<string, number>;
+  onSelect: (id: string) => void;
+  onFilterChange: (filter: InboxFilter) => void;
+  onSearchChange: (search: string) => void;
 }
 
 export function ConversationList({
   conversations,
   selectedId,
-  onSelect,
   filter,
-  onFilterChange,
   search,
+  onSelect,
+  onFilterChange,
   onSearchChange,
-  counts,
 }: Props) {
-  const filters = [
-    { key: "all", label: "All" },
-    { key: "awaiting_human", label: "Open handoffs" },
-    { key: "lead", label: "Leads" },
-    { key: "closed", label: "Closed" },
-  ];
-
   return (
-    <div className="flex flex-col h-full border-r border-navy-700 bg-navy-900/50">
-      {/* Search */}
-      <div className="p-3 border-b border-navy-700">
+    <section id="side">
+      <div id="tools">
         <input
-          type="text"
+          id="q"
           placeholder="Search name, number or message"
           value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full rounded-lg bg-navy-800 border border-navy-600 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent"
+          onChange={(event) => onSearchChange(event.target.value)}
         />
-      </div>
-
-      {/* Filters */}
-      <div className="flex gap-1.5 px-3 py-2 border-b border-navy-700 overflow-x-auto">
-        {filters.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => onFilterChange(f.key)}
-            className={cn(
-              "px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition",
-              filter === f.key
-                ? "bg-accent text-navy-950"
-                : "bg-navy-700 text-gray-300 hover:bg-navy-600"
-            )}
-          >
-            {f.label}
-            {counts && (
-              <span
-                className={cn(
-                  "ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 text-[10px] font-semibold",
-                  filter === f.key
-                    ? "bg-navy-950/20 text-navy-950"
-                    : f.key === "awaiting_human" && (counts[f.key] ?? 0) > 0
-                      ? "bg-orange-500 text-white"
-                      : "bg-navy-600 text-gray-200"
-                )}
-              >
-                {counts[f.key] ?? 0}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* List */}
-      <div className="flex-1 overflow-y-auto">
-        {conversations.length === 0 ? (
-          <div className="p-6 text-center text-gray-500 text-sm">
-            No conversations found
-          </div>
-        ) : (
-          conversations.map((c) => (
+        <div id="tabs">
+          {TABS.map(([key, label]) => (
             <button
-              key={c.id}
-              onClick={() => onSelect(c.id)}
-              className={cn(
-                "w-full text-left px-3 py-3 border-b border-navy-800 hover:bg-navy-800/60 transition",
-                selectedId === c.id && "bg-navy-800"
-              )}
+              key={key}
+              type="button"
+              className={filter === key ? "on" : undefined}
+              onClick={() => onFilterChange(key)}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-white text-sm truncate">
-                      {c.name}
-                    </span>
-                    {c.isUnread && (
-                      <span className="w-2 h-2 rounded-full bg-accent shrink-0" />
-                    )}
-                    <span
-                      className={cn(
-                        "text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0",
-                        statusStyles[c.status] || statusStyles.open
-                      )}
-                    >
-                      {statusLabels[c.status] || c.status}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-0.5">{c.phone}</div>
-                  <div className="text-xs text-gray-500 mt-1 truncate">
-                    {c.lastMessage}
-                  </div>
-                </div>
-                <span className="text-[10px] text-gray-500 shrink-0">
-                  {formatRelativeTime(c.lastMessageAt)}
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div id="list">
+        {conversations.length ? (
+          conversations.map((conversation) => (
+            <div
+              key={conversation.id}
+              className={`row${conversation.id === selectedId ? " sel" : ""}`}
+              onClick={() => onSelect(conversation.id)}
+            >
+              <div className="t">
+                <b>{conversation.name || `+${conversation.phone}`}</b>
+                <small>{formatTime(conversation.lastAt)}</small>
+              </div>
+              <div className="t">
+                <small>{`+${conversation.phone}`}</small>
+                <span className={`tag ${conversation.status}`}>
+                  {formatStatus(conversation.status)}
                 </span>
               </div>
-            </button>
+              <div className="p">{conversation.last}</div>
+            </div>
           ))
+        ) : (
+          <div className="empty">No conversations.</div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

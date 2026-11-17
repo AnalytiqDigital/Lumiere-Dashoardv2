@@ -23,7 +23,7 @@ The connected workflow is "Lumière Belleza WhatsApp Support Agent with Human Ha
 
 After deploying the dashboard, set the workflow's `DASHBOARD_EVENTS_URL` to `https://<dashboard-host>/api/integrations/events`. The workflow also needs its `N8N_EVENTS_SECRET` value set to the same value as the dashboard's environment variable.
 
-The inbox refreshes conversations and the selected chat every 3 seconds while open. Click **Enable alerts** once to allow desktop notifications and sound for new customer messages and handoffs.
+The inbox refreshes conversations and the selected chat every 3 seconds while open. It requests desktop notification permission on load and alerts with a banner, a three-tone sound and a flashing tab title when a new handoff opens. The 🔔 button mutes or unmutes the sound, and the choice is remembered.
 
 The incoming event endpoint accepts the workflow fields `type`, `messageId`, `customerPhone`, `customerName`, `content`, `messageType`, `supported`, `isTeam`, `timestamp`, `hasOpenHandoff`, and `handoffId`. It verifies the shared header and deduplicates messages by `messageId`. For a handoff created after the message event, send a second event after the workflow confirms the handoff:
 
@@ -62,7 +62,7 @@ When a handoff is closed outside the dashboard (the team sends `/close` on Whats
 
 The workflow also sends AI replies (`type: "message.sent.ai"`) and team replies typed on WhatsApp (`type: "message.sent.team"`, `isTeam: true`) so the thread shows the whole conversation. Replies sent from the dashboard are stored by the dashboard itself and are not echoed back.
 
-Dashboard replies and handoff closures are sent server-side as `reply` and `close` actions with `handoffId`, a unique `actionId`, and reply `text` when applicable. The workflow remains responsible for WhatsApp delivery.
+Dashboard replies to a chat with an open handoff are sent server-side as `reply` actions with `handoffId`, `customerPhone`, a unique `actionId`, and the reply `text`; the workflow remains responsible for WhatsApp delivery. Replies to chats without an open handoff go straight to the WhatsApp Cloud API, so set `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_TOKEN` in the hosting environment. Handoff closures use the same webhook with the `close` action. The conversations endpoint returns `handoffReason` alongside `handoffId` so the inbox can show it in the chat header.
 
 ## Deployment
 

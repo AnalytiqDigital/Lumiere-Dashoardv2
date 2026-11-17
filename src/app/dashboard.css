@@ -1,0 +1,297 @@
+/* Solar Axis dashboard styles, scoped under .sa to coexist with Tailwind. */
+.sa {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --line: #334155;
+  --txt: #e2e8f0;
+  --mut: #94a3b8;
+  --acc: #f59e0b;
+  --red: #ef4444;
+  --grn: #22c55e;
+  --blu: #3b82f6;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--txt);
+  font: 14px system-ui, "Segoe UI", sans-serif;
+}
+.sa *,
+.sa *::before,
+.sa *::after {
+  box-sizing: border-box;
+}
+.sa button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--acc);
+  color: #111;
+  font-weight: 600;
+}
+.sa button.ghost {
+  background: transparent;
+  color: var(--txt);
+  border: 1px solid var(--line);
+}
+.sa button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sa input,
+.sa textarea {
+  font: inherit;
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0b1220;
+  color: var(--txt);
+}
+.sa input::placeholder,
+.sa textarea::placeholder {
+  color: #757575;
+  opacity: 1;
+}
+.sa #login {
+  max-width: 340px;
+  margin: 18vh auto;
+  padding: 24px;
+  background: var(--panel);
+  border-radius: 12px;
+}
+.sa #login h2 {
+  margin: 0 0 12px;
+  font-size: 1.5em;
+  font-weight: 700;
+}
+.sa #login p {
+  color: var(--mut);
+  margin: 1em 0;
+}
+.sa small {
+  font-size: smaller;
+}
+.sa b,
+.sa strong {
+  font-weight: 700;
+}
+.sa #app {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
+.sa header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.sa header h1 {
+  font-size: 16px;
+  margin: 0;
+  flex: 1;
+  font-weight: 700;
+}
+.sa .pill {
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 12px;
+  background: #0b1220;
+  border: 1px solid var(--line);
+  color: var(--mut);
+}
+.sa .pill.hot {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+.sa #banner {
+  background: var(--red);
+  color: #fff;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sa main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.sa #side {
+  width: 340px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sa #tools {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.sa #tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sa #tabs button {
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--mut);
+  border: 1px solid var(--line);
+  font-weight: 500;
+}
+.sa #tabs button.on {
+  background: var(--acc);
+  color: #111;
+  border-color: var(--acc);
+}
+.sa #list {
+  overflow: auto;
+  flex: 1;
+}
+.sa .row {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.sa .row:hover,
+.sa .row.sel {
+  background: var(--panel);
+}
+.sa .row .t {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sa .row b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sa .row small {
+  color: var(--mut);
+}
+.sa .row .p {
+  color: var(--mut);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 3px;
+}
+.sa .tag {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-weight: 700;
+  color: #111;
+}
+.sa .tag.open {
+  background: var(--red);
+  color: #fff;
+}
+.sa .tag.closed {
+  background: var(--grn);
+}
+.sa .tag.lead,
+.sa .tag.followed_up {
+  background: var(--acc);
+}
+.sa .tag.none {
+  background: var(--line);
+  color: var(--txt);
+}
+.sa #chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sa #chead {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.sa #chead .back {
+  display: none;
+}
+.sa #msgs {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sa .m {
+  max-width: 75%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  background: var(--panel);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sa .m.in {
+  align-self: flex-start;
+}
+.sa .m.out {
+  align-self: flex-end;
+  background: #14532d;
+}
+.sa .m.admin {
+  background: #1e3a8a;
+}
+.sa .m.team {
+  background: #4c1d95;
+}
+.sa .m small {
+  display: block;
+  color: var(--mut);
+  margin-top: 3px;
+  font-size: 11px;
+}
+.sa .empty {
+  margin: auto;
+  color: var(--mut);
+  text-align: center;
+  padding: 20px;
+}
+.sa #compose {
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.sa #compose textarea {
+  resize: none;
+  height: 44px;
+}
+.sa #note {
+  padding: 0 14px 8px;
+  color: var(--mut);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .sa #side {
+    width: 100%;
+  }
+  .sa #chat {
+    display: none;
+  }
+  .sa.chatting #side {
+    display: none;
+  }
+  .sa.chatting #chat {
+    display: flex;
+  }
+  .sa #chead .back {
+    display: inline-block;
+  }
+}

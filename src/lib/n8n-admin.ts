@@ -11,6 +11,7 @@ export async function sendAdminWebhookAction(payload: {
   handoffId: string;
   actionId: string;
   text?: string;
+  customerPhone?: string;
 }): Promise<void> {
   const url = process.env.N8N_ADMIN_WEBHOOK_URL;
   const headerName = process.env.N8N_ADMIN_HEADER_NAME;

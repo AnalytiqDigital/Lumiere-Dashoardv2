@@ -2,15 +2,37 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ConversationList, type ConversationPreview } from "@/components/inbox/ConversationList";
-import { ChatThread, type ChatMessage } from "@/components/inbox/ChatThread";
-import { CustomerPanel } from "@/components/inbox/CustomerPanel";
+import { ChatThread } from "@/components/inbox/ChatThread";
+import {
+  ConversationList,
+  type InboxFilter,
+} from "@/components/inbox/ConversationList";
+import {
+  beep,
+  flashTitle,
+  notifyNewHandoff,
+  readSoundPreference,
+  requestNotificationPermission,
+  stopTitleFlash,
+  writeSoundPreference,
+} from "@/lib/alerts";
 import { businessConfig } from "@/lib/business-config";
-import { Bell, LogOut } from "lucide-react";
+import {
+  sortConversations,
+  toConversation,
+  toMessage,
+  type ApiConversation,
+  type ApiMessage,
+  type SolarConversation,
+  type SolarMessage,
+} from "@/lib/dashboard";
 
-const REFRESH_INTERVAL_MS = 3000;
+const REFRESH_MS = 3000;
+const SEEN_KEY = "lumiere-seen-handoffs";
 
-function responseError(data: unknown, fallback: string): string {
+type ApiError = { error?: string; hint?: string };
+
+function errorText(data: unknown, fallback: string): string {
   if (
     typeof data === "object" &&
     data !== null &&
@@ -22,106 +44,115 @@ function responseError(data: unknown, fallback: string): string {
   return fallback;
 }
 
+function redirectToLogin(): void {
+  stopTitleFlash();
+  window.location.href = "/login";
+}
+
+function readSeen(): string[] {
+  try {
+    const raw = window.localStorage.getItem(SEEN_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function InboxPage() {
   const router = useRouter();
+  const [rows, setRows] = useState<SolarConversation[]>([]);
+  const [messages, setMessages] = useState<SolarMessage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
-  const [conversations, setConversations] = useState<ConversationPreview[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [mobileView, setMobileView] = useState<"list" | "chat" | "customer">("list");
-  const [error, setError] = useState("");
-  const [loadingConversations, setLoadingConversations] = useState(true);
-  const [alertsEnabled, setAlertsEnabled] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-  const [toast, setToast] = useState("");
-  const [toastTitle, setToastTitle] = useState("");
-  const seenConversations = useRef<Map<string, { lastInboundMessageId: string | null; status: string }> | null>(null);
-  const alertAudio = useRef<AudioContext | null>(null);
+  const [sync, setSync] = useState("…");
+  const [soundOn, setSoundOn] = useState(true);
+  const [banner, setBanner] = useState<{ names: string; id: string } | null>(
+    null
+  );
+  const [sending, setSending] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [chatting, setChatting] = useState(false);
 
-  const loadConversations = useCallback(async () => {
+  const refreshingConversations = useRef(false);
+
+  const refreshConversations = useCallback(async () => {
     const response = await fetch("/api/conversations", { cache: "no-store" });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(responseError(data, "Could not load conversations"));
+    if (response.status === 401) {
+      redirectToLogin();
+      return;
     }
-    const next = data.conversations as ConversationPreview[];
-    const previous = seenConversations.current;
-    if (previous) {
-      const newMessages = next.filter((conversation) => {
-        const prior = previous.get(conversation.id);
-        return (
-          conversation.lastInboundMessageId &&
-          (!prior || prior.lastInboundMessageId !== conversation.lastInboundMessageId)
-        );
-      });
-      const newHandoffs = next.filter((conversation) => {
-        const prior = previous.get(conversation.id);
-        return conversation.status === "awaiting_human" && prior?.status !== "awaiting_human";
-      });
-      if (newMessages.length || newHandoffs.length) {
-        const hasNewHandoff = newHandoffs.length > 0;
-        const count = Math.max(newMessages.length, newHandoffs.length);
-        const title = hasNewHandoff ? "New handoff" : "New WhatsApp message";
-        const body = hasNewHandoff
-          ? `${newHandoffs[0].name} needs your attention.`
-          : `${newMessages[0].name}: ${newMessages[0].lastMessage}`;
-        setToastTitle(title);
-        setToast(body);
-        if (alertsEnabled && "Notification" in window && Notification.permission === "granted") {
-          new Notification(title, { body, tag: `lumiere-${newMessages[0]?.id ?? newHandoffs[0]?.id}` });
-          const audio = alertAudio.current;
-          if (audio?.state === "running") {
-            const oscillator = audio.createOscillator();
-            const gain = audio.createGain();
-            oscillator.frequency.value = 880;
-            gain.gain.setValueAtTime(0.0001, audio.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.08, audio.currentTime + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.25);
-            oscillator.connect(gain);
-            gain.connect(audio.destination);
-            oscillator.start();
-            oscillator.stop(audio.currentTime + 0.25);
-          }
-        }
-        if (count > 1) setToast(`${count} new conversations need your attention.`);
-      }
+    const data = (await response.json().catch(() => ({}))) as {
+      conversations?: ApiConversation[];
+    } & ApiError;
+    if (!response.ok || !data.conversations) {
+      throw new Error(errorText(data, "Request failed"));
     }
-    seenConversations.current = new Map(
-      next.map((conversation) => [
-        conversation.id,
-        { lastInboundMessageId: conversation.lastInboundMessageId ?? null, status: conversation.status },
-      ]),
+
+    const next = sortConversations(data.conversations.map(toConversation));
+    const stored = window.localStorage.getItem(SEEN_KEY);
+    const seen = new Set(readSeen());
+    const fresh = next.filter(
+      (conversation) => conversation.hasOpen && !seen.has(conversation.id)
     );
-    setConversations(next);
-    setUpdatedAt(new Date());
-  }, [alertsEnabled]);
+
+    if (fresh.length && stored) {
+      const names = fresh
+        .map((conversation) => conversation.name || `+${conversation.phone}`)
+        .join(", ");
+      setBanner({ names, id: fresh[0].id });
+      if (readSoundPreference()) beep();
+      notifyNewHandoff(names);
+      flashTitle();
+    }
+
+    window.localStorage.setItem(
+      SEEN_KEY,
+      JSON.stringify(
+        next
+          .filter((conversation) => conversation.handoffId)
+          .map((conversation) => conversation.id)
+          .slice(0, 1000)
+      )
+    );
+
+    setRows(next);
+    setSync(
+      `Updated ${new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })}`
+    );
+  }, []);
 
   useEffect(() => {
     let active = true;
-    let refreshing = false;
+
     const refresh = async () => {
-      if (refreshing) return;
-      refreshing = true;
+      if (refreshingConversations.current) return;
+      refreshingConversations.current = true;
       try {
-        await loadConversations();
-        if (active) setError("");
+        await refreshConversations();
       } catch (cause) {
         if (active) {
-          setError(cause instanceof Error ? cause.message : "Could not load conversations");
+          const message =
+            cause instanceof Error ? cause.message : "Request failed";
+          setSync(`Offline: ${message.slice(0, 60)}`);
         }
       } finally {
-        refreshing = false;
-        if (active) setLoadingConversations(false);
+        refreshingConversations.current = false;
       }
     };
+
     void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
+    const timer = window.setInterval(() => void refresh(), REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [loadConversations]);
+  }, [refreshConversations]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -132,29 +163,39 @@ export default function InboxPage() {
     let active = true;
     let refreshing = false;
     setMessages([]);
-    const refresh = async () => {
+
+    const load = async () => {
       if (refreshing) return;
       refreshing = true;
       try {
-        const response = await fetch(`/api/conversations/${encodeURIComponent(selectedId)}/messages`, {
-          cache: "no-store",
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(responseError(data, "Could not load messages"));
+        const response = await fetch(
+          `/api/conversations/${encodeURIComponent(selectedId)}/messages`,
+          { cache: "no-store" }
+        );
+        if (response.status === 401) {
+          redirectToLogin();
+          return;
         }
-        if (active) setMessages(data.messages);
+        const data = (await response.json().catch(() => ({}))) as {
+          messages?: ApiMessage[];
+        } & ApiError;
+        if (!response.ok || !data.messages) {
+          throw new Error(errorText(data, "Could not load messages"));
+        }
+        if (active) setMessages(data.messages.map(toMessage));
       } catch (cause) {
         if (active) {
-          setError(cause instanceof Error ? cause.message : "Could not load messages");
+          const message =
+            cause instanceof Error ? cause.message : "Could not load messages";
+          setSync(`Offline: ${message.slice(0, 60)}`);
         }
       } finally {
         refreshing = false;
       }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
 
+    void load();
+    const timer = window.setInterval(() => void load(), REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -162,237 +203,182 @@ export default function InboxPage() {
   }, [selectedId]);
 
   useEffect(() => {
-    if ("Notification" in window && Notification.permission === "granted") {
-      setAlertsEnabled(localStorage.getItem("lumiere-alerts-enabled") === "true");
-    }
+    setSoundOn(readSoundPreference());
+    requestNotificationPermission();
+    return () => stopTitleFlash();
   }, []);
 
   useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 6000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
+    if (selectedId && !rows.some((row) => row.id === selectedId)) {
+      setSelectedId(null);
+      setChatting(false);
+    }
+  }, [rows, selectedId]);
 
-  const filtered = conversations.filter((conversation) => {
-    if (filter !== "all" && conversation.status !== filter) return false;
-    if (!search) return true;
-    const query = search.toLowerCase();
+  const selected = rows.find((row) => row.id === selectedId) || null;
+  const openCount = rows.filter((row) => row.hasOpen).length;
+
+  const query = search.trim().toLowerCase();
+  const visible = rows.filter((conversation) => {
+    if (filter === "open" && !conversation.hasOpen) return false;
+    if (
+      filter === "lead" &&
+      !["lead", "followed_up"].includes(conversation.status)
+    ) {
+      return false;
+    }
+    if (filter === "closed" && conversation.status !== "closed") return false;
     return (
-      conversation.name.toLowerCase().includes(query) ||
-      conversation.phone.includes(query) ||
-      conversation.lastMessage.toLowerCase().includes(query)
+      !query ||
+      `${conversation.name} ${conversation.phone} ${conversation.last}`
+        .toLowerCase()
+        .includes(query)
     );
   });
 
-  const filterCounts: Record<string, number> = {
-    all: conversations.length,
-    awaiting_human: conversations.filter((conversation) => conversation.status === "awaiting_human").length,
-    lead: conversations.filter((conversation) => conversation.status === "lead").length,
-    closed: conversations.filter((conversation) => conversation.status === "closed").length,
-  };
+  function toggleSound() {
+    const next = !soundOn;
+    setSoundOn(next);
+    writeSoundPreference(next);
+    if (next) beep();
+  }
 
-  const selected = conversations.find((conversation) => conversation.id === selectedId) || null;
+  async function handleLogout() {
+    stopTitleFlash();
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+    }
+  }
 
   async function handleSend(text: string): Promise<boolean> {
     if (!selectedId) return false;
-    setError("");
-
+    setSending(true);
     try {
       const response = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId: selectedId, content: text }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(responseError(data, "Could not send reply"));
+      if (response.status === 401) {
+        redirectToLogin();
+        return false;
       }
-      setMessages((previous) => [...previous, data.message]);
-      await loadConversations();
+      const data = (await response.json().catch(() => ({}))) as {
+        message?: ApiMessage;
+      } & ApiError;
+      if (!response.ok || !data.message) {
+        const hint = data.hint ? `\n\n${data.hint}` : "";
+        window.alert(`${errorText(data, "Could not send reply")}${hint}`);
+        return false;
+      }
+      setMessages((previous) => [...previous, toMessage(data.message!)]);
+      void refreshConversations().catch(() => {});
       return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not send reply");
+    } catch {
+      window.alert("Could not send reply");
       return false;
+    } finally {
+      setSending(false);
     }
   }
 
-  async function handleAction(action: "takeover" | "close") {
-    if (!selectedId) return;
-    setError("");
+  async function handleClose() {
+    const row = rows.find((conversation) => conversation.id === selectedId);
+    if (!row) return;
+    const label = row.name || `+${row.phone}`;
+    if (!window.confirm(`Close this chat for ${label}?`)) return;
 
+    setClosing(true);
     try {
       const response = await fetch(
-        `/api/conversations/${encodeURIComponent(selectedId)}/actions`,
+        `/api/conversations/${encodeURIComponent(row.id)}/actions`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ action: "close" }),
         }
       );
-      const data = await response.json();
+      if (response.status === 401) {
+        redirectToLogin();
+        return;
+      }
+      const data = (await response.json().catch(() => ({}))) as ApiError;
       if (!response.ok) {
-        throw new Error(responseError(data, "Could not update conversation"));
+        window.alert(errorText(data, "Could not close chat"));
+        return;
       }
-      await loadConversations();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update conversation");
-    }
-  }
-
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-  }
-
-  async function enableAlerts() {
-    if (!("Notification" in window)) {
-      setError("This browser does not support desktop notifications.");
-      return;
-    }
-    const permission =
-      Notification.permission === "granted"
-        ? "granted"
-        : await Notification.requestPermission();
-    if (permission !== "granted") {
-      setError("Allow notifications in your browser settings to receive message and handoff alerts.");
-      return;
-    }
-    try {
-      if ("AudioContext" in window) {
-        const audio = alertAudio.current ?? new window.AudioContext();
-        await audio.resume();
-        alertAudio.current = audio;
-      }
-      localStorage.setItem("lumiere-alerts-enabled", "true");
-      setAlertsEnabled(true);
-      setError("");
+      await refreshConversations().catch(() => {});
     } catch {
-      setError("Notifications are enabled, but this browser could not enable alert sounds.");
-      setAlertsEnabled(true);
+      window.alert("Could not close chat");
+    } finally {
+      setClosing(false);
     }
   }
 
   return (
-    <div className="h-screen flex flex-col bg-navy-950">
-      <header className="flex items-center justify-between px-4 py-2.5 border-b border-navy-700 bg-navy-900 shrink-0">
-        <h1 className="text-sm font-medium text-white">
-          {businessConfig.name} · Chats
-        </h1>
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <span className="inline px-2 py-1 rounded-full bg-navy-700">
-            {filterCounts.awaiting_human} open handoff{filterCounts.awaiting_human === 1 ? "" : "s"}
+    <div className={`sa${chatting ? " chatting" : ""}`}>
+      <div id="app">
+        <header>
+          <h1>{businessConfig.name} · Chats</h1>
+          <span className={`pill${openCount ? " hot" : ""}`}>
+            {`${openCount} open handoff${openCount === 1 ? "" : "s"}`}
           </span>
-          <span className="hidden md:inline" aria-live="polite">
-            {updatedAt
-              ? `Updated ${updatedAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
-              : "Syncing…"}
+          <span className="pill" aria-live="polite">
+            {sync}
           </span>
           <button
-            onClick={enableAlerts}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-navy-700"
-            aria-label={alertsEnabled ? "Message and handoff alerts enabled" : "Enable message and handoff alerts"}
+            type="button"
+            className="ghost"
+            title="Toggle alert sound"
+            onClick={toggleSound}
           >
-            <Bell className="w-3.5 h-3.5" />
-            {alertsEnabled ? "Alerts on" : "Enable alerts"}
+            {soundOn ? "🔔 On" : "🔕 Off"}
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-navy-700 text-gray-300"
-          >
-            <LogOut className="w-3.5 h-3.5" />
+          <button type="button" className="ghost" onClick={handleLogout}>
             Sign out
           </button>
-        </div>
-      </header>
+        </header>
 
-      {error && (
-        <div role="alert" className="px-4 py-2 bg-red-950 text-red-200 text-sm">
-          {error}
-        </div>
-      )}
-      {toast && (
-        <div role="status" aria-live="polite" className="absolute right-4 top-14 z-50 max-w-sm rounded-lg border border-accent bg-navy-800 px-4 py-3 text-sm text-white shadow-xl">
-          <strong className="block">{toastTitle}</strong>
-          <span>{toast}</span>
-        </div>
-      )}
-
-      <div className="flex-1 flex overflow-hidden">
-        <div
-          className={`w-full md:w-[320px] lg:w-[340px] shrink-0 ${
-            mobileView !== "list" ? "hidden md:block" : "block"
-          }`}
-        >
-          {loadingConversations && conversations.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-sm text-gray-500">
-              Loading conversations…
-            </div>
-          ) : (
-            <ConversationList
-              conversations={filtered}
-              counts={filterCounts}
-              selectedId={selectedId}
-              onSelect={(id) => {
-                setSelectedId(id);
-                setMobileView("chat");
-              }}
-              filter={filter}
-              onFilterChange={setFilter}
-              search={search}
-              onSearchChange={setSearch}
-            />
-          )}
-        </div>
-
-        <div
-          className={`flex-1 min-w-0 ${
-            mobileView === "list" ? "hidden md:block" : mobileView === "customer" ? "hidden lg:block" : "block"
-          }`}
-        >
-          <ChatThread
-            conversation={
-              selected
-                ? {
-                    id: selected.id,
-                    name: selected.name,
-                    phone: selected.phone,
-                    status: selected.status,
-                    summary: selected.summary,
-                  }
-                : null
-            }
-            messages={messages}
-            onSend={handleSend}
-            onClose={() => {
-              setMobileView("list");
-              setSelectedId(null);
+        {banner && (
+          <div
+            id="banner"
+            role="alert"
+            onClick={() => {
+              setSelectedId(banner.id);
+              setChatting(true);
+              setBanner(null);
+              stopTitleFlash();
             }}
-          />
-        </div>
+          >
+            {`🚨 AI handoff: ${banner.names} needs a human. Click to open.`}
+          </div>
+        )}
 
-        <div
-          className={`${
-            mobileView === "customer" ? "block w-full" : "hidden lg:block"
-          }`}
-        >
-          <CustomerPanel
-            customer={
-              selected
-                ? {
-                    name: selected.name,
-                    phone: selected.phone,
-                    status: selected.status,
-                    tags: selected.tags,
-                    notes: selected.notes,
-                    summary: selected.summary,
-                  }
-                : null
-            }
-            onClose={() => setMobileView("chat")}
-            onTakeover={() => handleAction("takeover")}
-            onCloseHandoff={() => handleAction("close")}
+        <main>
+          <ConversationList
+            conversations={visible}
+            selectedId={selectedId}
+            filter={filter}
+            search={search}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setChatting(true);
+            }}
+            onFilterChange={setFilter}
+            onSearchChange={setSearch}
           />
-        </div>
+          <ChatThread
+            conversation={selected}
+            messages={messages}
+            sending={sending}
+            closing={closing}
+            onSend={handleSend}
+            onClose={() => void handleClose()}
+            onBack={() => setChatting(false)}
+          />
+        </main>
       </div>
     </div>
   );

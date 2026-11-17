@@ -69,6 +69,7 @@ export async function GET() {
         notes: conversation.customer.notes || "",
         summary: conversation.summary || "",
         handoffId: conversation.handoffs[0]?.id || null,
+        handoffReason: conversation.handoffs[0]?.reason || "",
       })),
     });
   } catch (error) {

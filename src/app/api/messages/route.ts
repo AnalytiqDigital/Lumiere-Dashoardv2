@@ -14,6 +14,51 @@ const replySchema = z.object({
   content: z.string().trim().min(1).max(4000),
 });
 
+class WhatsAppConfigurationError extends Error {}
+
+class WhatsAppRequestError extends Error {
+  constructor(
+    message: string,
+    readonly hint?: string
+  ) {
+    super(message);
+  }
+}
+
+async function sendWhatsAppText(
+  phoneNumberId: string,
+  token: string,
+  to: string,
+  text: string
+): Promise<void> {
+  const response = await fetch(
+    `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: text.slice(0, 4000) },
+      }),
+      cache: "no-store",
+    }
+  );
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new WhatsAppRequestError(
+      body.error?.message || "WhatsApp rejected the message",
+      "Free-text replies only work within 24h of the customer last messaging you."
+    );
+  }
+}
+
 export async function POST(request: Request) {
   if (!(await hasValidSession())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,6 +81,8 @@ export async function POST(request: Request) {
         business: { slug: "lumiere-belleza" },
       },
       include: {
+        business: true,
+        customer: true,
         handoffs: {
           where: { status: { in: ["OPEN", "ASSIGNED"] } },
           orderBy: { requestedAt: "desc" },
@@ -52,19 +99,40 @@ export async function POST(request: Request) {
     }
 
     const handoff = conversation.handoffs[0];
-    if (!handoff) {
-      return NextResponse.json(
-        { error: "This conversation does not have an open handoff" },
-        { status: 409 }
+    const customerPhone = conversation.customer.phoneNumber.replace(/\D/g, "");
+
+    if (handoff) {
+      await sendAdminWebhookAction({
+        action: "reply",
+        handoffId: handoff.id,
+        actionId: randomUUID(),
+        text: input.content,
+        customerPhone,
+      });
+    } else {
+      if (!/^\d{8,15}$/.test(customerPhone)) {
+        return NextResponse.json(
+          { error: "This customer has no valid WhatsApp number" },
+          { status: 400 }
+        );
+      }
+      const token = process.env.WHATSAPP_TOKEN;
+      const phoneNumberId =
+        process.env.WHATSAPP_PHONE_NUMBER_ID ||
+        conversation.business.whatsappPhoneNumberId ||
+        "";
+      if (!token || !phoneNumberId) {
+        throw new WhatsAppConfigurationError(
+          "Replies without an open handoff require WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID to be configured"
+        );
+      }
+      await sendWhatsAppText(
+        phoneNumberId,
+        token,
+        customerPhone,
+        input.content
       );
     }
-
-    await sendAdminWebhookAction({
-      action: "reply",
-      handoffId: handoff.id,
-      actionId: randomUUID(),
-      text: input.content,
-    });
 
     const message = await prisma.message.create({
       data: {
@@ -94,6 +162,15 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof WhatsAppConfigurationError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    if (error instanceof WhatsAppRequestError) {
+      return NextResponse.json(
+        { error: error.message, hint: error.hint },
+        { status: 502 }
+      );
+    }
     if (error instanceof AdminWebhookConfigurationError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
     }

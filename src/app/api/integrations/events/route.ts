@@ -22,7 +22,7 @@ const eventSchema = z.object({
     .transform((value) => String(value))
     .optional()
     .nullable(),
-  handoffReason: z.string().max(300).optional().nullable(),
+  handoffReason: z.string().max(2000).optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {

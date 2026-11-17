@@ -62,7 +62,7 @@ When a handoff is closed outside the dashboard (the team sends `/close` on Whats
 
 The workflow also sends AI replies (`type: "message.sent.ai"`) and team replies typed on WhatsApp (`type: "message.sent.team"`, `isTeam: true`) so the thread shows the whole conversation. Replies sent from the dashboard are stored by the dashboard itself and are not echoed back.
 
-Dashboard replies to a chat with an open handoff are sent server-side as `reply` actions with `handoffId`, `customerPhone`, a unique `actionId`, and the reply `text`; the workflow remains responsible for WhatsApp delivery. Replies to chats without an open handoff go straight to the WhatsApp Cloud API, so set `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_TOKEN` in the hosting environment. Handoff closures use the same webhook with the `close` action. The conversations endpoint returns `handoffReason` alongside `handoffId` so the inbox can show it in the chat header.
+Dashboard replies to a chat with an open handoff are sent server-side as `reply` actions with `handoffId`, `customerPhone`, a unique `actionId`, and the reply `text`; the workflow remains responsible for WhatsApp delivery. Replies to chats without an open handoff go straight to the WhatsApp Cloud API, so set `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_TOKEN` in the hosting environment. Handoff closures use the same webhook with the `close` action. The conversations endpoint returns `handoffReason` from the latest handoff, including closed ones, so the inbox can show it in the chat header for every conversation that had a handoff; `handoffId` is only set while that handoff is open or assigned.
 
 ## Deployment
 

@@ -33,9 +33,8 @@ export async function GET() {
       include: {
         customer: true,
         handoffs: {
-          where: { status: { in: ["OPEN", "ASSIGNED"] } },
           orderBy: { requestedAt: "desc" },
-          take: 1,
+          take: 10,
         },
         messages: {
           where: { sender: "CUSTOMER" },
@@ -49,28 +48,34 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      conversations: conversations.map((conversation) => ({
-        id: conversation.id,
-        name:
-          conversation.customer.name ||
-          conversation.customer.pushName ||
-          conversation.customer.phoneNumber,
-        phone: conversation.customer.phoneNumber,
-        lastMessage: conversation.lastMessageText || "",
-        lastMessageAt: conversation.lastMessageAt.toISOString(),
-        status:
-          conversation.handoffs.length > 0 &&
-          conversation.status !== "CLOSED"
-            ? "awaiting_human"
-            : toUiStatus(conversation.status),
-        isUnread: conversation.isUnread,
-        lastInboundMessageId: conversation.messages[0]?.id ?? null,
-        tags: conversation.customer.tags,
-        notes: conversation.customer.notes || "",
-        summary: conversation.summary || "",
-        handoffId: conversation.handoffs[0]?.id || null,
-        handoffReason: conversation.handoffs[0]?.reason || "",
-      })),
+      conversations: conversations.map((conversation) => {
+        const latestHandoff = conversation.handoffs[0];
+        const openHandoff = conversation.handoffs.find(
+          (handoff) =>
+            handoff.status === "OPEN" || handoff.status === "ASSIGNED"
+        );
+        return {
+          id: conversation.id,
+          name:
+            conversation.customer.name ||
+            conversation.customer.pushName ||
+            conversation.customer.phoneNumber,
+          phone: conversation.customer.phoneNumber,
+          lastMessage: conversation.lastMessageText || "",
+          lastMessageAt: conversation.lastMessageAt.toISOString(),
+          status:
+            openHandoff && conversation.status !== "CLOSED"
+              ? "awaiting_human"
+              : toUiStatus(conversation.status),
+          isUnread: conversation.isUnread,
+          lastInboundMessageId: conversation.messages[0]?.id ?? null,
+          tags: conversation.customer.tags,
+          notes: conversation.customer.notes || "",
+          summary: conversation.summary || "",
+          handoffId: openHandoff?.id ?? null,
+          handoffReason: latestHandoff?.reason || "",
+        };
+      }),
     });
   } catch (error) {
     console.error("[conversations] failed to load", error);
